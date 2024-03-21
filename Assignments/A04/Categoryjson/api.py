@@ -1,30 +1,19 @@
 # Libraries for FastAPI
-from fastapi import FastAPI, Query, Path, HTTPException
+from fastapi import FastAPI, Query, Path
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, Response,  FileResponse
-from mongoManager import MongoManager
-from pydantic import BaseModel
-from pymongo import MongoClient
-from typing import List
-import base64
-import json
 import uvicorn
+import json
+from pymongo import MongoClient
+from pymongo import UpdateOne
+from typing import List
+from pydantic import BaseModel
+from mongoManager import MongoManager
+
+# Builtin libraries
 import os
+
 from random import shuffle
-from passlib.context import CryptContext
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def hash_password(password: str):
-    return pwd_context.hash(password)
-
-
-class Person(BaseModel):
-    first: str
-    last: str 
-    email: str
-    password: str 
 
 """
            _____ _____   _____ _   _ ______ ____
@@ -107,9 +96,7 @@ instance of the class `CountryReader` that loads countries. There are 6 other co
 maybe you create your own country file, which would be great. But try to implement a class that 
 organizes your ability to access a countries polygon data.
 """
-
-mm = MongoManager(db='candy_store_2')
-mm.setDb('candy_store_2')
+mm = MongoManager(db="candyAPI")
 
 """
   _      ____   _____          _        __  __ ______ _______ _    _  ____  _____   _____
@@ -123,7 +110,10 @@ This is where methods you write to help with any routes written below should go.
 a module written that you include with statements above.  
 """
 
+data = []
 
+with open("people.json") as f:
+    data = json.load(f)
 
 """
   _____   ____  _    _ _______ ______  _____
@@ -136,110 +126,62 @@ a module written that you include with statements above.
  This is where your routes will be defined. Routes are just python functions that retrieve, save, 
  delete, and update data. How you make that happen is up to you.
 """
-
-
 @app.get("/")
 async def docs_redirect():
     """Api's base route that displays the information created above in the ApiInfo section."""
     return RedirectResponse(url="/docs")
 
 
-
 @app.get("/candies")
 def list_all_candies():
-    """
-    Retrieve a list of all candies available in the store.
-    """
-    mm.setCollection('candies')
-    result = mm.get()
+    mm.setCollection("candies")
+    result = mm.get(filter={"_id": 0})
     return result
 
+@app.get("/categories")
+def list_categories():
+    mm.setCollection("candies")
+    result = mm.distinct(field="category")
+    return result
 
 @app.get("/candies/category/{category}")
 def candies_by_category(category: str):
-    """
-    Search for candies based on a query string (e.g., name, category, flavor).
-    """
-    mm.setCollection('candies')
+    mm.setCollection("candies")
     result = mm.get(
-        query = {'category':category},
-        filter = {"_id":0,"name":1,"price":1,"category":1})
+        query={"category": category},
+        filter={"_id": 0, "name": 1, "price": 1, "category": 1},
+    )
     return result
 
 
 @app.get("/candies/id/{id}")
-def get_candy_by_id(
-    id: str
-):
-    """
-    Get detailed information about a specific candy.
-    """
-    mm.setCollection('candies')
+def get_candy_by_id(id: str):
+   
+    mm.setCollection("candies")
     result = mm.get(
-        query = {'_id':int(id)})
+        query={"id": id}, filter={"_id": 0, "name": 1, "price": 1, "category": 1,"description":1}
+    )
     return result
 
-@app.get("/image/base64/{image_id}")
-def get_image(image_id: str):
-    mm.setCollection('images')
-    base64_image = mm.get_image_from_mongodb(image_id)
-    if not base64_image:
-        raise HTTPException(status_code=404, detail="Image not found")
-
-    # Decode the Base64 string
-    image_bytes = base64.b64decode(base64_image)
-
-    # Return the raw image bytes with the appropriate content type
-    return Response(content=image_bytes, media_type="image/png")
-
-@app.get("/image/")
-def get_image(img_id:str):
-    mm.setCollection('candies')
-    result = mm.get(query = {'_id':int(img_id)})
-
-    return FileResponse(result['data']['img_path'])
-
-@app.post("/register")
-def register(person: Person):
-    """
-    Add a new candy to the store's inventory.
-    """
-    mm.setCollection("users")
-    person.password = hash_password(person.password)
-    print(hash_password(person.password))
-    mm.post(person.dict())
-    
-
-@app.post("/candies")
-def add_new_candy():
-    """
-    Add a new candy to the store's inventory.
-    """
-    pass
 
 
 @app.put("/candies/{candy_id}")
 def update_candy_info(candy_id: int):
-    """
-    Update information about an existing candy.
-    """
-    pass
+   
+    mm.setCollection("candies")
+    mm.update(query={"id": candy_id}, update={"$set": {"price": new_price}})
+    return {"message": "Candy price updated successfully"}
+
 
 
 @app.delete("/candies/{candy_id}")
 def delete_candy(candy_id: int):
-    """
-    Remove a candy from the store's inventory.
-    """
-    pass
+    
+    mm.setCollection("candies")
+    filter_query = {"id": candy_id}
+    result = mm.delete_one(filter_query)
+    return result
 
-
-@app.get("/categories")
-def list_categories():
-    """
-    Get a list of candy categories (e.g., chocolates, gummies, hard candies).
-    """
-    pass
 
 
 """
@@ -257,22 +199,4 @@ Note:
     The right side (app) is the bearingiable name of the FastApi instance declared at the top of the file.
 """
 if __name__ == "__main__":
-    #gunicorn -w 4 -k uvicorn.workers.UvicornWorker app:main --bind 0.0.0.0:8000 --keyfile=./key.pem --certfile=./cert.pem
-
-    # uvicorn.run("api:app", host="kidsinvans.fun", port=8080, log_level="debug", reload=True)
-
-    uvicorn.run(
-        "api:app",
-        host="0.0.0.0",  # Use 0.0.0.0 to bind to all network interfaces
-        #port=443,  # Standard HTTPS port
-        port=8080,  # Standard HTTPS port
-        log_level="debug",
-        ssl_keyfile="/etc/letsencrypt/archive/kidsinvans.fun/privkey1.pem",
-        ssl_certfile="/etc/letsencrypt/archive/kidsinvans.fun/fullchain1.pem",
-        reload=True
-    )
-"""                                   ^
-                                      |
-CHANGE DOMAIN NAME                    |              
-
-"""
+    uvicorn.run("api:app", host="143.198.4.154", port=8084, log_level="debug", reload=True)
